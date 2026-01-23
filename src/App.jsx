@@ -202,87 +202,101 @@ function JanusEnhanced() {
 
   // Load user data from backend
   const loadUserData = async () => {
+    // Always load from localStorage first
+    const cachedFiles = localStorage.getItem('janus:recentFiles');
+    const cachedLinks = localStorage.getItem('janus:recentLinks');
+    const oldSheets = localStorage.getItem('recentSheets');
+
+    // Load from cache immediately for fast display
+    if (cachedFiles) {
+      const files = JSON.parse(cachedFiles);
+      console.log('Loaded', files.length, 'recent files from localStorage');
+      setRecentFiles(files);
+    }
+
+    if (cachedLinks) {
+      const links = JSON.parse(cachedLinks);
+      console.log('Loaded', links.length, 'recent links from localStorage');
+      setRecentLinks(links);
+      setRecentSheets(links.map(link => link.url));
+    } else if (oldSheets) {
+      // Migrate old recentSheets format
+      console.log('Migrating old recentSheets data');
+      const sheets = JSON.parse(oldSheets);
+      setRecentSheets(sheets);
+      const migratedLinks = sheets.map(url => ({
+        url,
+        title: extractSheetName(url),
+        timestamp: new Date().toISOString()
+      }));
+      setRecentLinks(migratedLinks);
+      localStorage.setItem('janus:recentLinks', JSON.stringify(migratedLinks));
+    }
+
+    // Then try to sync from backend (will update if backend has newer data)
     try {
-      console.log('Loading user data from backend...');
+      console.log('Syncing with backend...');
       const response = await fetch('/api/user-data');
 
       if (!response.ok) {
-        throw new Error(`API returned ${response.status}`);
+        console.log('Backend not available, using localStorage');
+        return;
       }
 
       const data = await response.json();
 
-      if (data.recentFiles && Array.isArray(data.recentFiles)) {
-        console.log('Loaded', data.recentFiles.length, 'recent files from backend');
+      // Only update if backend has data (don't overwrite localStorage with empty arrays)
+      if (data.recentFiles && Array.isArray(data.recentFiles) && data.recentFiles.length > 0) {
+        console.log('Synced', data.recentFiles.length, 'recent files from backend');
         setRecentFiles(data.recentFiles);
         localStorage.setItem('janus:recentFiles', JSON.stringify(data.recentFiles));
       }
 
-      if (data.recentLinks && Array.isArray(data.recentLinks)) {
-        console.log('Loaded', data.recentLinks.length, 'recent links from backend');
+      if (data.recentLinks && Array.isArray(data.recentLinks) && data.recentLinks.length > 0) {
+        console.log('Synced', data.recentLinks.length, 'recent links from backend');
         setRecentLinks(data.recentLinks);
         setRecentSheets(data.recentLinks.map(link => link.url));
         localStorage.setItem('janus:recentLinks', JSON.stringify(data.recentLinks));
         localStorage.setItem('recentSheets', JSON.stringify(data.recentLinks.map(link => link.url)));
       }
     } catch (err) {
-      console.error('Failed to load user data from backend:', err);
-      // Fallback to localStorage
-      const cachedFiles = localStorage.getItem('janus:recentFiles');
-      const cachedLinks = localStorage.getItem('janus:recentLinks');
-      const oldSheets = localStorage.getItem('recentSheets');
-
-      if (cachedFiles) {
-        console.log('Loading recent files from localStorage after error');
-        setRecentFiles(JSON.parse(cachedFiles));
-      }
-
-      if (cachedLinks) {
-        console.log('Loading recent links from localStorage after error');
-        const links = JSON.parse(cachedLinks);
-        setRecentLinks(links);
-        setRecentSheets(links.map(link => link.url));
-      } else if (oldSheets) {
-        // Migrate old recentSheets format
-        console.log('Migrating old recentSheets data');
-        const sheets = JSON.parse(oldSheets);
-        setRecentSheets(sheets);
-        const migratedLinks = sheets.map(url => ({
-          url,
-          title: 'Google Sheet',
-          timestamp: new Date().toISOString()
-        }));
-        setRecentLinks(migratedLinks);
-        localStorage.setItem('janus:recentLinks', JSON.stringify(migratedLinks));
-      }
+      console.log('Backend not available, using localStorage');
     }
   };
 
   // Save user data to backend
   const saveUserData = async (files, links) => {
+    const filesToSave = files || recentFiles;
+    const linksToSave = links || recentLinks;
+
+    console.log('Saving user data:', { files: filesToSave.length, links: linksToSave.length });
+
+    // Always save to localStorage first (immediate, reliable)
+    localStorage.setItem('janus:recentFiles', JSON.stringify(filesToSave));
+    localStorage.setItem('janus:recentLinks', JSON.stringify(linksToSave));
+    console.log('Saved to localStorage');
+
+    // Then try to sync to backend
     try {
-      console.log('Saving user data to backend...');
       const response = await fetch('/api/user-data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          recentFiles: files || recentFiles,
-          recentLinks: links || recentLinks
+          recentFiles: filesToSave,
+          recentLinks: linksToSave
         })
       });
 
-      const data = await response.json();
-      if (data.success) {
-        console.log('Successfully saved user data to backend');
-        // Also save to localStorage as cache
-        localStorage.setItem('janus:recentFiles', JSON.stringify(files || recentFiles));
-        localStorage.setItem('janus:recentLinks', JSON.stringify(links || recentLinks));
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          console.log('Successfully synced to backend');
+        }
+      } else {
+        console.log('Backend not available, using localStorage only');
       }
     } catch (err) {
-      console.error('Failed to save user data to backend:', err);
-      // Still save to localStorage
-      localStorage.setItem('janus:recentFiles', JSON.stringify(files || recentFiles));
-      localStorage.setItem('janus:recentLinks', JSON.stringify(links || recentLinks));
+      console.log('Backend not available (local dev), using localStorage only');
     }
   };
 
@@ -329,7 +343,7 @@ function JanusEnhanced() {
     // Add to recent with metadata
     const linkEntry = {
       url: currentUrl.trim(),
-      title: 'Google Sheet',
+      title: extractSheetName(currentUrl.trim()),
       timestamp: new Date().toISOString()
     };
 
@@ -356,13 +370,14 @@ function JanusEnhanced() {
   const handleFileUpload = async (e) => {
     const uploadedFiles = Array.from(e.target.files);
     const newFiles = [];
+    const newFileEntries = [];
 
     for (const file of uploadedFiles) {
       try {
         const text = await file.text();
         newFiles.push({ name: file.name, content: text, size: file.size });
 
-        // Track recent file
+        // Track recent file metadata
         const fileType = file.name.split('.').pop();
         const fileEntry = {
           name: file.name,
@@ -370,19 +385,24 @@ function JanusEnhanced() {
           fileSize: file.size,
           timestamp: new Date().toISOString()
         };
-
-        // Update recent files (keep last 10)
-        const updatedRecentFiles = [
-          fileEntry,
-          ...recentFiles.filter(f => f.name !== file.name)
-        ].slice(0, 10);
-
-        setRecentFiles(updatedRecentFiles);
-        saveUserData(updatedRecentFiles, recentLinks);
+        newFileEntries.push(fileEntry);
       } catch (err) {
         setError(`Failed to read ${file.name}`);
       }
     }
+
+    // Update recent files list (keep last 10, remove duplicates)
+    if (newFileEntries.length > 0) {
+      const updatedRecentFiles = [
+        ...newFileEntries,
+        ...recentFiles.filter(f => !newFileEntries.some(nf => nf.name === f.name))
+      ].slice(0, 10);
+
+      console.log('Updating recent files:', updatedRecentFiles);
+      setRecentFiles(updatedRecentFiles);
+      await saveUserData(updatedRecentFiles, recentLinks);
+    }
+
     setLocalFiles([...localFiles, ...newFiles]);
   };
 
@@ -842,6 +862,22 @@ function JanusEnhanced() {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
+  // Extract a readable name from Google Sheets URL
+  const extractSheetName = (url) => {
+    try {
+      // Try to extract sheet ID from URL
+      const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+      if (match) {
+        const sheetId = match[1];
+        // Return last 8 characters of sheet ID as identifier
+        return `Sheet-${sheetId.slice(-8)}`;
+      }
+      return 'Google Sheet';
+    } catch (err) {
+      return 'Google Sheet';
+    }
+  };
+
   return (
     <div className={`min-h-screen ${bgClass} p-6 transition-colors`}>
       <div className="max-w-5xl mx-auto">
@@ -936,7 +972,7 @@ function JanusEnhanced() {
                     <span className="text-xs text-slate-500">Recent:</span>
                     {recentLinks.slice(0, 3).map((link, i) => (
                       <button key={i} onClick={() => setCurrentUrl(link.url)} className="text-xs bg-slate-700/50 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded" title={link.url}>
-                        Sheet {i + 1}
+                        {link.title && link.title.length > 20 ? link.title.substring(0, 17) + '...' : link.title || `Sheet ${i + 1}`}
                       </button>
                     ))}
                   </div>
