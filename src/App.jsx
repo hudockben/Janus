@@ -111,6 +111,7 @@ function JanusEnhanced() {
   const [showChartBuilder, setShowChartBuilder] = useState(false);
   const [chartData, setChartData] = useState(null);
   const [selectedChartType, setSelectedChartType] = useState('bar');
+  const [showLanding, setShowLanding] = useState(true);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -969,6 +970,58 @@ function JanusEnhanced() {
       return 'Google Sheet';
     }
   };
+
+  // Show landing page
+  if (showLanding) {
+    return (
+      <div className={`min-h-screen ${bgClass} flex items-center justify-center p-6`}>
+        <div className="max-w-2xl w-full text-center">
+          {/* Logo/Icon */}
+          <div className="mb-8">
+            <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-teal-400 to-cyan-600 mb-6 shadow-2xl">
+              <Brain className="w-12 h-12 text-white" />
+            </div>
+            <h1 className="text-6xl font-bold text-teal-400 mb-4">Janus</h1>
+            <p className="text-2xl text-slate-300 mb-2">AI Data Processing Agent</p>
+            <p className="text-lg text-slate-400">Intelligent data transformation powered by Claude</p>
+          </div>
+
+          {/* Features */}
+          <div className={`${cardClass} rounded-lg shadow-2xl p-8 border mb-8`}>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              <div className="flex flex-col items-center text-center">
+                <Table className="w-10 h-10 text-teal-400 mb-3" />
+                <h3 className="font-semibold text-slate-200 mb-2">Google Sheets</h3>
+                <p className="text-sm text-slate-400">Connect and process spreadsheet data</p>
+              </div>
+              <div className="flex flex-col items-center text-center">
+                <Upload className="w-10 h-10 text-teal-400 mb-3" />
+                <h3 className="font-semibold text-slate-200 mb-2">Local Files</h3>
+                <p className="text-sm text-slate-400">Upload CSV, JSON, and text files</p>
+              </div>
+              <div className="flex flex-col items-center text-center">
+                <Zap className="w-10 h-10 text-teal-400 mb-3" />
+                <h3 className="font-semibold text-slate-200 mb-2">Automations</h3>
+                <p className="text-sm text-slate-400">Schedule automated processing</p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowLanding(false)}
+              className="w-full max-w-md mx-auto px-8 py-4 bg-gradient-to-r from-teal-500 to-cyan-600 hover:from-teal-400 hover:to-cyan-500 text-white text-lg font-bold rounded-lg transition-all transform hover:scale-105 shadow-lg hover:shadow-xl flex items-center justify-center gap-3"
+            >
+              <Play className="w-6 h-6" />
+              Launch Janus Agent
+            </button>
+          </div>
+
+          <p className="text-sm text-slate-500">
+            Process, transform, and analyze your data with AI-powered rules
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   // Main app
   return (
