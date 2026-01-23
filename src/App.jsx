@@ -249,7 +249,7 @@ function JanusEnhanced() {
         setRecentSheets(sheets);
         const migratedLinks = sheets.map(url => ({
           url,
-          title: 'Google Sheet',
+          title: extractSheetName(url),
           timestamp: new Date().toISOString()
         }));
         setRecentLinks(migratedLinks);
@@ -329,7 +329,7 @@ function JanusEnhanced() {
     // Add to recent with metadata
     const linkEntry = {
       url: currentUrl.trim(),
-      title: 'Google Sheet',
+      title: extractSheetName(currentUrl.trim()),
       timestamp: new Date().toISOString()
     };
 
@@ -842,6 +842,22 @@ function JanusEnhanced() {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
+  // Extract a readable name from Google Sheets URL
+  const extractSheetName = (url) => {
+    try {
+      // Try to extract sheet ID from URL
+      const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+      if (match) {
+        const sheetId = match[1];
+        // Return last 8 characters of sheet ID as identifier
+        return `Sheet-${sheetId.slice(-8)}`;
+      }
+      return 'Google Sheet';
+    } catch (err) {
+      return 'Google Sheet';
+    }
+  };
+
   return (
     <div className={`min-h-screen ${bgClass} p-6 transition-colors`}>
       <div className="max-w-5xl mx-auto">
@@ -936,7 +952,7 @@ function JanusEnhanced() {
                     <span className="text-xs text-slate-500">Recent:</span>
                     {recentLinks.slice(0, 3).map((link, i) => (
                       <button key={i} onClick={() => setCurrentUrl(link.url)} className="text-xs bg-slate-700/50 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded" title={link.url}>
-                        Sheet {i + 1}
+                        {link.title && link.title.length > 20 ? link.title.substring(0, 17) + '...' : link.title || `Sheet ${i + 1}`}
                       </button>
                     ))}
                   </div>
