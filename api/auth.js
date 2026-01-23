@@ -1,6 +1,5 @@
 import { sql } from '@vercel/postgres';
 import crypto from 'crypto';
-import { sessions } from './auth-helper.js';
 
 // Hash password using crypto
 function hashPassword(password) {
@@ -15,9 +14,52 @@ function verifyPassword(password, salt, hash) {
   return hash === hashVerify;
 }
 
-// Generate session token
-function generateToken() {
-  return crypto.randomBytes(32).toString('hex');
+// Generate JWT-like token with user data encoded
+function generateToken(userId, email) {
+  const payload = {
+    userId,
+    email,
+    iat: Date.now()
+  };
+  const payloadStr = JSON.stringify(payload);
+  const payloadB64 = Buffer.from(payloadStr).toString('base64');
+
+  // Sign with secret (in production, use proper JWT library and secret from env)
+  const secret = process.env.JWT_SECRET || 'default-secret-change-in-production';
+  const signature = crypto
+    .createHmac('sha256', secret)
+    .update(payloadB64)
+    .digest('base64');
+
+  return `${payloadB64}.${signature}`;
+}
+
+// Verify and decode token
+function verifyToken(token) {
+  if (!token) return null;
+
+  try {
+    const [payloadB64, signature] = token.split('.');
+    if (!payloadB64 || !signature) return null;
+
+    // Verify signature
+    const secret = process.env.JWT_SECRET || 'default-secret-change-in-production';
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(payloadB64)
+      .digest('base64');
+
+    if (signature !== expectedSignature) return null;
+
+    // Decode payload
+    const payloadStr = Buffer.from(payloadB64, 'base64').toString('utf-8');
+    const payload = JSON.parse(payloadStr);
+
+    return payload;
+  } catch (err) {
+    console.error('Token verification failed:', err);
+    return null;
+  }
 }
 
 export default async function handler(req, res) {
@@ -82,13 +124,8 @@ export default async function handler(req, res) {
 
       const user = rows[0];
 
-      // Create session
-      const token = generateToken();
-      sessions.set(token, {
-        userId: user.id,
-        email: user.email,
-        createdAt: Date.now()
-      });
+      // Create token
+      const token = generateToken(user.id, user.email);
 
       console.log('User signed up:', user.email);
 
@@ -130,13 +167,8 @@ export default async function handler(req, res) {
         return res.status(401).json({ error: 'Invalid email or password' });
       }
 
-      // Create session
-      const token = generateToken();
-      sessions.set(token, {
-        userId: user.id,
-        email: user.email,
-        createdAt: Date.now()
-      });
+      // Create token
+      const token = generateToken(user.id, user.email);
 
       console.log('User logged in:', user.email);
 
@@ -154,27 +186,27 @@ export default async function handler(req, res) {
 
     // VERIFY TOKEN (Check if logged in)
     if (req.method === 'GET' && req.url.includes('/verify')) {
-      const token = req.headers.authorization?.replace('Bearer ', '');
+      const authHeader = req.headers.authorization;
+      const token = authHeader?.replace('Bearer ', '');
 
       if (!token) {
         return res.status(401).json({ error: 'No token provided' });
       }
 
-      const session = sessions.get(token);
+      const payload = verifyToken(token);
 
-      if (!session) {
+      if (!payload) {
         return res.status(401).json({ error: 'Invalid or expired token' });
       }
 
-      // Get user details
+      // Get fresh user details
       const { rows } = await sql`
         SELECT id, email, name, created_at
         FROM users
-        WHERE id = ${session.userId}
+        WHERE id = ${payload.userId}
       `;
 
       if (rows.length === 0) {
-        sessions.delete(token);
         return res.status(401).json({ error: 'User not found' });
       }
 
@@ -189,16 +221,9 @@ export default async function handler(req, res) {
       });
     }
 
-    // LOGOUT
+    // LOGOUT (client-side only, just return success)
     if (req.method === 'POST' && req.url.includes('/logout')) {
-      const token = req.headers.authorization?.replace('Bearer ', '');
-
-      if (token) {
-        sessions.delete(token);
-      }
-
       console.log('User logged out');
-
       return res.status(200).json({ success: true });
     }
 
@@ -212,3 +237,6 @@ export default async function handler(req, res) {
     });
   }
 }
+
+// Export verifyToken for use in other API routes
+export { verifyToken };

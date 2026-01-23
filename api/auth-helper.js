@@ -1,14 +1,36 @@
 import { sql } from '@vercel/postgres';
+import crypto from 'crypto';
 
-// Simple session store (in production, use Redis or database)
-// This is shared with auth.js
-const sessions = new Map();
+// Verify and decode token (same logic as in auth.js)
+function verifyToken(token) {
+  if (!token) return null;
 
-// Export for use in auth.js
-export { sessions };
+  try {
+    const [payloadB64, signature] = token.split('.');
+    if (!payloadB64 || !signature) return null;
 
-// Verify authentication token and return user_id
-export async function verifyToken(req) {
+    // Verify signature
+    const secret = process.env.JWT_SECRET || 'default-secret-change-in-production';
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(payloadB64)
+      .digest('base64');
+
+    if (signature !== expectedSignature) return null;
+
+    // Decode payload
+    const payloadStr = Buffer.from(payloadB64, 'base64').toString('utf-8');
+    const payload = JSON.parse(payloadStr);
+
+    return payload;
+  } catch (err) {
+    console.error('Token verification failed:', err);
+    return null;
+  }
+}
+
+// Verify authentication token and return user info
+export async function getUserFromToken(req) {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -16,32 +38,31 @@ export async function verifyToken(req) {
   }
 
   const token = authHeader.replace('Bearer ', '');
-  const session = sessions.get(token);
+  const payload = verifyToken(token);
 
-  if (!session) {
+  if (!payload) {
     return null;
   }
 
   // Verify user still exists in database
   const { rows } = await sql`
-    SELECT id, email, name FROM users WHERE id = ${session.userId}
+    SELECT id, email, name FROM users WHERE id = ${payload.userId}
   `;
 
   if (rows.length === 0) {
-    sessions.delete(token);
     return null;
   }
 
   return {
-    userId: session.userId,
-    email: session.email,
+    userId: payload.userId,
+    email: payload.email,
     user: rows[0]
   };
 }
 
 // Middleware to require authentication
 export async function requireAuth(req, res) {
-  const auth = await verifyToken(req);
+  const auth = await getUserFromToken(req);
 
   if (!auth) {
     res.status(401).json({ error: 'Authentication required' });
